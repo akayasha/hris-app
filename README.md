@@ -11,13 +11,7 @@ The codebase is set up for local development first. It uses PostgreSQL, JWT-base
 - Employee CRUD-style operations
 - Employee photo upload
 - Attendance check-in, check-out, and absence status submission
-- Automatic seeding for master data such as:
-  - jabatan
-  - departemen
-  - unit kerja
-  - pendidikan
-  - jenis kelamin
-  - status absen
+- Automatic seeding for master data such as jabatan, departemen, unit kerja, pendidikan, jenis kelamin, and status absen
 
 ## Tech Stack
 
@@ -42,19 +36,29 @@ The main packages are organized as follows:
 - `com.hris.config`: security and application bootstrap
 - `com.hris.util`: helper utilities
 
-## Default Configuration
+## Configuration Profiles
 
-The current local configuration lives in [`src/main/resources/application.properties`](</home/karumakarumakaruma/Downloads/hris-app/src/main/resources/application.properties>).
+Configuration is now split by environment:
 
-Important defaults:
+- [`application.properties`](</home/karumakarumakaruma/Downloads/hris-app/src/main/resources/application.properties>) contains shared settings and defaults
+- [`application-local.properties`](</home/karumakarumakaruma/Downloads/hris-app/src/main/resources/application-local.properties>) contains the local PostgreSQL connection
+- [`application-prod.properties`](</home/karumakarumakaruma/Downloads/hris-app/src/main/resources/application-prod.properties>) expects database credentials from environment variables
+- [`application-test.properties`](</home/karumakarumakaruma/Downloads/hris-app/src/main/resources/application-test.properties>) keeps test-specific overrides separate
+
+The active profile is controlled by `APP_PROFILE`. If you do nothing, the app uses `local`.
+
+Shared defaults:
 
 - App name: `hris-app`
 - Port: `8080`
+- Hibernate mode: `update`
+- Upload directory: `uploads/photos`
+
+Local profile defaults:
+
 - Database URL: `jdbc:postgresql://localhost:5432/hris_db`
 - Database username: `postgres`
 - Database password: `pass`
-- Hibernate mode: `update`
-- Upload directory: `uploads/photos`
 
 ## Prerequisites
 
@@ -63,7 +67,7 @@ Before running the app, make sure you have:
 - Java 17 installed
 - Maven installed
 - PostgreSQL installed and running on `localhost:5432`
-- A PostgreSQL user that matches the credentials in `application.properties`
+- A PostgreSQL user that matches the active profile configuration
 
 The app can create the `hris_db` database automatically, but it still needs a PostgreSQL user with permission to create databases. If the configured user does not have that privilege, startup will still fail.
 
@@ -86,7 +90,7 @@ java -jar target/hris-app-1.0.0.jar
 
 On startup, the application does a few things automatically:
 
-1. It reads the datasource settings from `application.properties`.
+1. It reads the datasource settings from the active Spring profile.
 2. It checks whether the PostgreSQL database exists.
 3. If the database is missing, it tries to create it.
 4. Hibernate updates the schema with `spring.jpa.hibernate.ddl-auto=update`.
@@ -98,7 +102,19 @@ That means a fresh local database can usually be bootstrapped just by running th
 
 This API uses JWT for authenticated endpoints.
 
-Important detail: most write endpoints currently use `@RequestParam`, not `@RequestBody`. In practice, that means the API expects form data or query parameters, not JSON bodies.
+Most write endpoints now accept JSON request bodies through `@RequestBody`. The main exception is photo upload, which still uses multipart form data.
+
+Responses now follow a shared structure:
+
+```json
+{
+  "success": true,
+  "message": "Login berhasil.",
+  "data": {},
+  "errors": null,
+  "timestamp": "2026-04-30T16:00:00Z"
+}
+```
 
 For authenticated requests, send:
 
@@ -137,25 +153,65 @@ Presensi:
 - `GET /presensi/out`
 - `POST /presensi/abseni`
 
+## Roles And Permissions
+
+There are two practical access levels in the current application.
+
+`ADMIN`
+
+- Can initialize the system
+- Can log in
+- Can view employee data
+- Can create employee records
+- Can update employee records
+- Can update employee photos through the admin endpoint
+- Can view admin attendance listings
+
+`PEGAWAI`
+
+- Can log in
+- Can change their own password
+- Can update their own photo
+- Can check in
+- Can check out
+- Can submit attendance status for themselves
+- Can view their own attendance history
+
+`HRD access`
+
+- There is no separate profile value for HRD in authorization checks
+- A user is treated as HRD when their department name is `HRD`
+- HRD gets the same access as admin for endpoints guarded by `roleChecker.getAdminOrHrd(...)`
+
+Public endpoints:
+
+- `POST /api/auth/init-data`
+- `POST /api/auth/login`
+- `GET /uploads/**`
+
 ## Example Curl Requests
 
 Initialize first admin:
 
 ```bash
 curl --request POST 'http://localhost:8080/api/auth/init-data' \
-  --header 'Content-Type: application/x-www-form-urlencoded' \
-  --data-urlencode 'namaAdmin=Admin HRIS' \
-  --data-urlencode 'perusahaan=MyCompany'
+  --header 'Content-Type: application/json' \
+  --data '{
+    "namaAdmin": "Admin HRIS",
+    "perusahaan": "MyCompany"
+  }'
 ```
 
 Login:
 
 ```bash
 curl --request POST 'http://localhost:8080/api/auth/login' \
-  --header 'Content-Type: application/x-www-form-urlencoded' \
-  --data-urlencode 'email=admin@mycompany.com' \
-  --data-urlencode 'password=yourpassword' \
-  --data-urlencode 'profile=ADMIN'
+  --header 'Content-Type: application/json' \
+  --data '{
+    "email": "admin@mycompany.com",
+    "password": "yourpassword",
+    "profile": "ADMIN"
+  }'
 ```
 
 Change your own password:
@@ -163,10 +219,12 @@ Change your own password:
 ```bash
 curl --request POST 'http://localhost:8080/api/auth/ubah-password-sendiri' \
   --header 'Authorization: Bearer YOUR_JWT_TOKEN' \
-  --header 'Content-Type: application/x-www-form-urlencoded' \
-  --data-urlencode 'passwordAsli=oldpassword' \
-  --data-urlencode 'passwordBaru1=newpassword123' \
-  --data-urlencode 'passwordBaru2=newpassword123'
+  --header 'Content-Type: application/json' \
+  --data '{
+    "passwordAsli": "oldpassword",
+    "passwordBaru1": "newpassword123",
+    "passwordBaru2": "newpassword123"
+  }'
 ```
 
 Get employee list:
@@ -188,9 +246,11 @@ Submit attendance status:
 ```bash
 curl --request POST 'http://localhost:8080/presensi/abseni' \
   --header 'Authorization: Bearer YOUR_JWT_TOKEN' \
-  --header 'Content-Type: application/x-www-form-urlencoded' \
-  --data-urlencode 'tglAbsensi=1714435200000' \
-  --data-urlencode 'kdStatus=1'
+  --header 'Content-Type: application/json' \
+  --data '{
+    "tglAbsensi": 1714435200000,
+    "kdStatus": 1
+  }'
 ```
 
 ## File Upload Note
@@ -210,8 +270,9 @@ curl --request POST 'http://localhost:8080/pegawai/ubah-photo' \
 
 - Security is stateless and based on JWT.
 - Public endpoints are currently limited to login, initial setup, and uploaded file access.
-- Most endpoint responses are simple maps rather than a consistent API envelope.
-- The app currently uses property-based local configuration only. There are no environment-specific profiles yet.
+- JSON request payloads are handled through DTOs and validation annotations.
+- Response bodies now use a consistent envelope for success and error cases.
+- Configuration is split by Spring profile instead of being kept in a single file.
 
 ## Common Problems
 
@@ -229,15 +290,4 @@ If a request fails with `401`:
 
 If a request fails even though you sent JSON:
 
-- Check the controller method first. Many endpoints expect form fields through `@RequestParam`, not JSON.
-
-## Next Improvements
-
-If you want to keep evolving this project, the highest-value cleanup items are:
-
-- move request payloads to DTOs with `@RequestBody`
-- add validation annotations to request models
-- add environment-based configuration
-- add tests for auth, employee, and attendance flows
-- standardize API response shapes
-- document roles and permission rules more explicitly
+- Check whether the endpoint is one of the upload routes. Photo upload endpoints still expect multipart form data.

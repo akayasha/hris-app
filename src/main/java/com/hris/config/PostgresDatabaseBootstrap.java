@@ -9,21 +9,26 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Properties;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class PostgresDatabaseBootstrap {
 
     private static final String PROPERTIES_FILE = "application.properties";
+    private static final String PROFILED_PROPERTIES = "application-%s.properties";
+    private static final String ACTIVE_PROFILE = "spring.profiles.active";
     private static final String DATASOURCE_URL = "spring.datasource.url";
     private static final String DATASOURCE_USERNAME = "spring.datasource.username";
     private static final String DATASOURCE_PASSWORD = "spring.datasource.password";
     private static final String POSTGRES_PREFIX = "jdbc:postgresql://";
+    private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{([^:}]+)(?::([^}]*))?}");
 
     private PostgresDatabaseBootstrap() {
     }
 
     public static void ensureDatabaseExists() {
         Properties properties = loadProperties();
-        String datasourceUrl = properties.getProperty(DATASOURCE_URL);
+        String datasourceUrl = resolveProperty(DATASOURCE_URL, properties);
 
         if (datasourceUrl == null || !datasourceUrl.startsWith(POSTGRES_PREFIX)) {
             return;
@@ -31,8 +36,8 @@ public final class PostgresDatabaseBootstrap {
 
         String databaseName = extractDatabaseName(datasourceUrl);
         String adminUrl = buildAdminUrl(datasourceUrl);
-        String username = properties.getProperty(DATASOURCE_USERNAME);
-        String password = properties.getProperty(DATASOURCE_PASSWORD);
+        String username = resolveProperty(DATASOURCE_USERNAME, properties);
+        String password = resolveProperty(DATASOURCE_PASSWORD, properties);
 
         try (Connection connection = DriverManager.getConnection(adminUrl, username, password)) {
             if (databaseExists(connection, databaseName)) {
@@ -50,16 +55,77 @@ public final class PostgresDatabaseBootstrap {
     private static Properties loadProperties() {
         Properties properties = new Properties();
 
+        try {
+            loadInto(properties, PROPERTIES_FILE);
+
+            String activeProfile = resolveValue(properties.getProperty(ACTIVE_PROFILE));
+            if (activeProfile != null && !activeProfile.isBlank()) {
+                for (String profile : activeProfile.split(",")) {
+                    String trimmedProfile = profile.trim();
+                    if (!trimmedProfile.isEmpty()) {
+                        loadInto(properties, PROFILED_PROPERTIES.formatted(trimmedProfile));
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to load configuration properties", e);
+        }
+
+        return properties;
+    }
+
+    private static void loadInto(Properties properties, String fileName) throws IOException {
         try (InputStream inputStream = PostgresDatabaseBootstrap.class.getClassLoader()
-                .getResourceAsStream(PROPERTIES_FILE)) {
+                .getResourceAsStream(fileName)) {
             if (inputStream == null) {
-                throw new IllegalStateException("Missing " + PROPERTIES_FILE);
+                return;
             }
             properties.load(inputStream);
-            return properties;
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to load " + PROPERTIES_FILE, e);
         }
+    }
+
+    private static String resolveProperty(String key, Properties properties) {
+        String systemValue = System.getProperty(key);
+        if (systemValue != null && !systemValue.isBlank()) {
+            return systemValue;
+        }
+
+        String envKey = key.toUpperCase().replace('.', '_').replace('-', '_');
+        String envValue = System.getenv(envKey);
+        if (envValue != null && !envValue.isBlank()) {
+            return envValue;
+        }
+
+        return resolveValue(properties.getProperty(key));
+    }
+
+    private static String resolveValue(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        Matcher matcher = PLACEHOLDER_PATTERN.matcher(value);
+        if (!matcher.matches()) {
+            return value;
+        }
+
+        String variable = matcher.group(1);
+        String defaultValue = matcher.group(2);
+
+        String resolved = System.getProperty(variable);
+        if (resolved == null || resolved.isBlank()) {
+            resolved = System.getenv(variable);
+        }
+        if ((resolved == null || resolved.isBlank()) && variable.contains(".")) {
+            String envStyleVariable = variable.toUpperCase().replace('.', '_').replace('-', '_');
+            resolved = System.getenv(envStyleVariable);
+        }
+
+        if (resolved == null || resolved.isBlank()) {
+            return defaultValue;
+        }
+
+        return resolved;
     }
 
     private static boolean databaseExists(Connection connection, String databaseName) throws SQLException {

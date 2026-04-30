@@ -1,5 +1,8 @@
 package com.hris.service;
 
+import com.hris.dto.request.ChangePasswordRequest;
+import com.hris.dto.request.InitDataRequest;
+import com.hris.dto.request.LoginRequest;
 import com.hris.dto.response.PenggunaDto;
 import com.hris.entity.*;
 import com.hris.exception.ApiException;
@@ -29,7 +32,7 @@ public class AuthService {
     private final JwtUtil jwtUtil;
     private final AuthenticationManager authenticationManager;
 
-    public Map<String, String> initData(String namaAdmin, String perusahaan) {
+    public Map<String, String> initData(InitDataRequest request) {
         // Cek apakah sudah ada admin
         boolean adminExists = penggunaRepository.findAll().stream()
                 .anyMatch(p -> "ADMIN".equals(p.getProfile()));
@@ -37,7 +40,7 @@ public class AuthService {
             throw new ApiException("Data awal sudah pernah dibuat sebelumnya. Tidak bisa membuat ulang.");
         }
 
-        String email = generateEmail(namaAdmin, perusahaan);
+        String email = generateEmail(request.namaAdmin(), request.perusahaan());
         String rawPassword = generatePassword();
 
         // Ambil default master data (index pertama)
@@ -53,7 +56,7 @@ public class AuthService {
                 .orElseThrow(() -> new ApiException("Data pendidikan belum tersedia."));
 
         Pengguna admin = Pengguna.builder()
-                .namaLengkap(namaAdmin)
+                .namaLengkap(request.namaAdmin())
                 .email(email)
                 .password(passwordEncoder.encode(rawPassword))
                 .profile("ADMIN")
@@ -76,22 +79,22 @@ public class AuthService {
         return result;
     }
 
-    public Map<String, Object> login(String email, String password, String profile) {
+    public Map<String, Object> login(LoginRequest request) {
         try {
             authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(email, password));
+                    new UsernamePasswordAuthenticationToken(request.email(), request.password()));
         } catch (BadCredentialsException e) {
             throw new ApiException("Email atau password yang Anda masukkan salah. Silakan coba lagi.");
         }
 
-        Pengguna pengguna = penggunaRepository.findByEmail(email)
+        Pengguna pengguna = penggunaRepository.findByEmail(request.email())
                 .orElseThrow(() -> new ApiException("Akun dengan email tersebut tidak ditemukan."));
 
-        if (!pengguna.getProfile().equalsIgnoreCase(profile)) {
+        if (!pengguna.getProfile().equalsIgnoreCase(request.profile())) {
             throw new ApiException("Profil login tidak sesuai. Silakan pilih profil yang benar.");
         }
 
-        String token = jwtUtil.generateToken(email);
+        String token = jwtUtil.generateToken(request.email());
 
         Map<String, Object> info = new LinkedHashMap<>();
         PenggunaDto dto = PenggunaDto.from(pengguna);
@@ -122,22 +125,18 @@ public class AuthService {
         return Map.of("hasil", hasil);
     }
 
-    public void ubahPasswordSendiri(String emailPengguna, String passwordAsli,
-                                     String passwordBaru1, String passwordBaru2) {
+    public void ubahPasswordSendiri(String emailPengguna, ChangePasswordRequest request) {
         Pengguna pengguna = penggunaRepository.findByEmail(emailPengguna)
                 .orElseThrow(() -> new ApiException("Akun tidak ditemukan."));
 
-        if (!passwordEncoder.matches(passwordAsli, pengguna.getPassword())) {
+        if (!passwordEncoder.matches(request.passwordAsli(), pengguna.getPassword())) {
             throw new ApiException("Password lama yang Anda masukkan tidak tepat.");
         }
-        if (!passwordBaru1.equals(passwordBaru2)) {
+        if (!request.passwordBaru1().equals(request.passwordBaru2())) {
             throw new ApiException("Password baru dan konfirmasi password tidak cocok.");
         }
-        if (passwordBaru1.length() < 6) {
-            throw new ApiException("Password baru minimal harus 6 karakter.");
-        }
 
-        pengguna.setPassword(passwordEncoder.encode(passwordBaru1));
+        pengguna.setPassword(passwordEncoder.encode(request.passwordBaru1()));
         penggunaRepository.save(pengguna);
     }
 

@@ -1,5 +1,7 @@
 package com.hris.service;
 
+import com.hris.dto.request.CreatePegawaiRequest;
+import com.hris.dto.request.UpdatePegawaiRequest;
 import com.hris.dto.response.PenggunaDto;
 import com.hris.entity.*;
 import com.hris.exception.ApiException;
@@ -103,28 +105,25 @@ public class PegawaiService {
 
     // ---------- TAMBAH ----------
 
-    public void tambahPegawai(String namaLengkap, String email, String tempatLahir,
-                               Long tanggalLahir, Integer kdJenisKelamin, Integer kdPendidikan,
-                               Integer kdJabatan, Integer kdDepartemen, Integer kdUnitKerja,
-                               String password, String passwordC) {
-        validatePasswordMatch(password, passwordC);
-        if (penggunaRepository.existsByEmail(email)) {
-            throw new ApiException("Email " + email + " sudah digunakan oleh pegawai lain.");
+    public void tambahPegawai(CreatePegawaiRequest request) {
+        validatePasswordMatch(request.password(), request.passwordC());
+        if (penggunaRepository.existsByEmail(request.email())) {
+            throw new ApiException("Email " + request.email() + " sudah digunakan oleh pegawai lain.");
         }
 
         Pengguna p = Pengguna.builder()
-                .namaLengkap(namaLengkap)
-                .email(email)
-                .tempatLahir(tempatLahir)
-                .tanggalLahir(tanggalLahir)
-                .password(passwordEncoder.encode(password))
+                .namaLengkap(request.namaLengkap())
+                .email(request.email())
+                .tempatLahir(request.tempatLahir())
+                .tanggalLahir(request.tanggalLahir())
+                .password(passwordEncoder.encode(request.password()))
                 .profile("PEGAWAI")
                 .nikUser(generateNik())
-                .jenisKelamin(findJenisKelamin(kdJenisKelamin))
-                .pendidikan(findPendidikan(kdPendidikan))
-                .jabatan(findJabatan(kdJabatan))
-                .departemen(findDepartemen(kdDepartemen))
-                .unitKerja(findUnitKerja(kdUnitKerja))
+                .jenisKelamin(findJenisKelamin(request.kdJenisKelamin()))
+                .pendidikan(findPendidikan(request.kdPendidikan()))
+                .jabatan(findJabatan(request.kdJabatan()))
+                .departemen(findDepartemen(request.kdDepartemen()))
+                .unitKerja(findUnitKerja(request.kdUnitKerja()))
                 .build();
 
         penggunaRepository.save(p);
@@ -132,30 +131,27 @@ public class PegawaiService {
 
     // ---------- UBAH ----------
 
-    public void ubahPegawai(String idUser, String namaLengkap, String email, String tempatLahir,
-                             Long tanggalLahir, Integer kdJenisKelamin, Integer kdPendidikan,
-                             Integer kdJabatan, Integer kdDepartemen, Integer kdUnitKerja,
-                             String password, String passwordC) {
-        validatePasswordMatch(password, passwordC);
+    public void ubahPegawai(UpdatePegawaiRequest request) {
+        validatePasswordMatch(request.password(), request.passwordC());
 
-        Pengguna p = penggunaRepository.findById(idUser)
+        Pengguna p = penggunaRepository.findById(request.idUser())
                 .orElseThrow(() -> new ApiException("Pegawai dengan ID tersebut tidak ditemukan."));
 
         // Cek email tidak dipakai orang lain
-        penggunaRepository.findByEmail(email)
-                .filter(existing -> !existing.getIdUser().equals(idUser))
-                .ifPresent(x -> { throw new ApiException("Email " + email + " sudah digunakan pegawai lain."); });
+        penggunaRepository.findByEmail(request.email())
+                .filter(existing -> !existing.getIdUser().equals(request.idUser()))
+                .ifPresent(x -> { throw new ApiException("Email " + request.email() + " sudah digunakan pegawai lain."); });
 
-        p.setNamaLengkap(namaLengkap);
-        p.setEmail(email);
-        p.setTempatLahir(tempatLahir);
-        p.setTanggalLahir(tanggalLahir);
-        p.setPassword(passwordEncoder.encode(password));
-        p.setJenisKelamin(findJenisKelamin(kdJenisKelamin));
-        p.setPendidikan(findPendidikan(kdPendidikan));
-        p.setJabatan(findJabatan(kdJabatan));
-        p.setDepartemen(findDepartemen(kdDepartemen));
-        p.setUnitKerja(findUnitKerja(kdUnitKerja));
+        p.setNamaLengkap(request.namaLengkap());
+        p.setEmail(request.email());
+        p.setTempatLahir(request.tempatLahir());
+        p.setTanggalLahir(request.tanggalLahir());
+        p.setPassword(passwordEncoder.encode(request.password()));
+        p.setJenisKelamin(findJenisKelamin(request.kdJenisKelamin()));
+        p.setPendidikan(findPendidikan(request.kdPendidikan()));
+        p.setJabatan(findJabatan(request.kdJabatan()));
+        p.setDepartemen(findDepartemen(request.kdDepartemen()));
+        p.setUnitKerja(findUnitKerja(request.kdUnitKerja()));
 
         penggunaRepository.save(p);
     }

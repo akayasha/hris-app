@@ -1,5 +1,6 @@
 package com.hris.service;
 
+import com.hris.dto.request.SubmitAbsensiRequest;
 import com.hris.entity.*;
 import com.hris.exception.ApiException;
 import com.hris.repository.*;
@@ -125,18 +126,18 @@ public class PresensiService {
 
     // ---------- ABSENSI (Tidak Masuk) ----------
 
-    public void submitAbsensi(String emailPengguna, Long tglAbsensi, Integer kdStatus) {
+    public void submitAbsensi(String emailPengguna, SubmitAbsensiRequest request) {
         Pengguna pengguna = getPengguna(emailPengguna);
 
-        StatusAbsen status = statusAbsenRepository.findById(kdStatus)
-                .orElseThrow(() -> new ApiException("Status absen dengan kode " + kdStatus + " tidak ditemukan."));
+        StatusAbsen status = statusAbsenRepository.findById(request.kdStatus())
+                .orElseThrow(() -> new ApiException("Status absen dengan kode " + request.kdStatus() + " tidak ditemukan."));
 
         if (status.getNamaStatus().equalsIgnoreCase("Hadir")) {
             throw new ApiException("Untuk status 'Hadir' silakan gunakan fitur check-in, bukan form absensi.");
         }
 
         Optional<Presensi> existing = presensiRepository
-                .findByPenggunaIdUserAndTglAbsensi(pengguna.getIdUser(), tglAbsensi);
+                .findByPenggunaIdUserAndTglAbsensi(pengguna.getIdUser(), request.tglAbsensi());
 
         if (existing.isPresent()) {
             Presensi pr = existing.get();
@@ -148,7 +149,7 @@ public class PresensiService {
         } else {
             Presensi pr = Presensi.builder()
                     .pengguna(pengguna)
-                    .tglAbsensi(tglAbsensi)
+                    .tglAbsensi(request.tglAbsensi())
                     .statusAbsen(status)
                     .build();
             presensiRepository.save(pr);
